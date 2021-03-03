@@ -2037,6 +2037,13 @@ LOCAL-REPO is a string."
            (and (straight--get-call "git" "reset" "--hard")
                 (straight--get-call "git" "clean" "-ffd"))))))))
 
+;; Calling conventions
+;; - from ensure local:
+;;   straight-vc-git--ensure-head("straight.el" "feature/xyz" nil)
+;;     this version doesn't fast forward tracking branch
+;; - from update/merge:
+;;   straight-vc-git--ensure-head("straight.el" "feature/xyz" "origin/feature/xyz")
+
 (cl-defun straight-vc-git--ensure-head (local-repo branch &optional ref)
   "Ensure that LOCAL-REPO has BRANCH checked out.
 If REF is non-nil, instead ensure that BRANCH is ahead of REF.
@@ -2063,6 +2070,8 @@ confirmation, so this function should only be run after
            (straight--get-call "git" "checkout" branch)
          (straight-vc-git--popup
            (format
+            ;; TODO HEAD can be anywhere; is not necessarily even with
+            ;; branch:
             "In repository %S, HEAD is even with branch %S, but detached."
             local-repo branch)
            ("a" (format "Attach HEAD to branch %S" branch)
@@ -2073,6 +2082,16 @@ confirmation, so this function should only be run after
        ;; though, it's not a question of being ahead or behind, the
        ;; state can be more complex than that, so we consider it
        ;; neither ahead nor behind.
+
+       ;; TODO
+       ;; if ref is nil then ref-name is HEAD and these are always t
+       ;;   since cur-branch == HEAD. This isn't useful when head is
+       ;;   detached since we want to compare cur-head with branch.
+       ;; else ref is set and we compare w/e branch is checked out,
+       ;;   cur-branch, and _not_ default `branch' as opposed to the
+       ;;   message we get below: default-branch has diverged etc.
+       ;;   The message may be correct due to assumptions made by
+       ;;   this fn.
        (let ((ref-ahead-p (straight--check-call
                            "git" "merge-base" "--is-ancestor"
                            cur-branch ref-name))
@@ -2091,6 +2110,7 @@ confirmation, so this function should only be run after
           (concat
            (format "In repository %S, " local-repo)
            (if ref
+               ;; TODO these tested cur-branch, not default branch
                (cond
                 (ref-behind-p
                  (cl-return-from straight-vc-git--ensure-head t))
@@ -2102,12 +2122,14 @@ confirmation, so this function should only be run after
                                 (format " (on branch %S)"
                                         cur-branch))))
                (cond
-                (ref-ahead-p
+                ;; TODO ref is nil here
+                (ref-ahead-p ;; so this is always t
                  (format "HEAD%s is ahead of default branch %S"
                          on-branch branch))
-                (ref-behind-p
+                (ref-behind-p ;; and we never reach this
                  (format "HEAD%s is behind default branch %S"
                          on-branch branch))
+                ;; or this.
                 (t (format "HEAD%s has diverged from default branch %S"
                            on-branch branch))))))
           ;; Here be dragons! Watch the quoting very carefully in
@@ -2115,10 +2137,14 @@ confirmation, so this function should only be run after
           ;; confuse this syntax with the syntax of the
           ;; `straight--popup' macro.
           `(,@(when (and ref-ahead-p ref)
+                ;; develop..origin/develop
+                ;; cur-branch..ref-name
                 `(("f" ,(format "Fast-forward branch %S to %s"
                                 cur-branch quoted-ref-name)
                    ,(lambda ()
                       (straight--get-call
+                       ;; TODO Why reset --hard here and elsewhere?
+                       ;; merge --ff-only should suffice.
                        "git" "reset" "--hard" ref-name)))))
             ,@(when (and ref-behind-p (null ref))
                 `(("c" ,(format "Checkout branch %S" branch)
@@ -2126,6 +2152,8 @@ confirmation, so this function should only be run after
                       (straight--get-call
                        "git" "checkout" branch)))))
             ,@(unless (or ref-ahead-p ref-behind-p)
+                ;; develop...origin/develop
+                ;; cur-branch...ref-name
                 `(("m" ,(format "Merge %s to branch %S" quoted-ref-name branch)
                    ,(lambda ()
                       (if ref
