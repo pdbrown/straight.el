@@ -3191,7 +3191,7 @@ normalization to convert a snapshot into a full repository."
                          "git" "reset" (if convert-snapshots "--mixed"
                                          "--hard")
                          commit)
-                  (straight--warn
+                  (error
                    "Could not reset to commit %S in repository %S"
                    commit local-repo)
                   ;; We couldn't check out the commit, best to proceed
